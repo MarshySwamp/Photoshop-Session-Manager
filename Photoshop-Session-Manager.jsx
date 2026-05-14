@@ -1,5 +1,5 @@
 /*
-Photoshop-Session-Manager-scriptUI-GUI-v1B.jsx
+Photoshop-Session-Manager-scriptUI-GUI-v1C.jsx
 Stephen Marsh
 v1.1 - 27th October 2024, Single session save/restore
 v1.1 - 27th October 2024, Extended the script to work with multiple sessions
@@ -9,7 +9,7 @@ https://community.adobe.com/t5/photoshop-ecosystem-ideas/please-session-saving/i
 https://community.adobe.com/t5/photoshop-ecosystem-ideas/restore-previous-session/idc-p/14189928
 */
 
-// TO DO LIST: RESTORE THE v1.0 FEATURE TO SET AND GET THE ACTIVE DOCUMENT...
+// TO DO: RESTORE THE v1.0 FEATURE TO SET AND GET THE ACTIVE DOCUMENT...
 
 #target photoshop
 
@@ -27,19 +27,26 @@ var saveRadio = radioGroup.add("radiobutton", undefined, "Save Current Session")
 var restoreRadio = radioGroup.add("radiobutton", undefined, "Restore Saved Session");
 saveRadio.value = true;
 
+// Add session name panel
+var sessionNamePanel = dlg.add("panel", undefined, "Save Current Session Custom Suffix");
+sessionNamePanel.orientation = "column";
+sessionNamePanel.alignChildren = ["fill", "top"];
+
+// Add edit text field for custom session name
+var sessionNameInput = sessionNamePanel.add("edittext");
+sessionNameInput.preferredSize.width = 430;
+var sessionNameHelp = sessionNamePanel.add("statictext", undefined, "Leave blank to use timestamp as session name");
+sessionNameHelp.graphics.foregroundColor = sessionNameHelp.graphics.newPen(sessionNameHelp.graphics.PenType.SOLID_COLOR, [0.5, 0.5, 0.5], 1);
+
 // Create restore session panel (always visible but inactive initially)
 var restorePanel = dlg.add("panel", undefined, "Restore Saved Session Options");
 restorePanel.orientation = "column";
 restorePanel.alignChildren = ["fill", "top"];
 restorePanel.visible = true;
 
-// Add instructions text
-//var instructionsText = restorePanel.add("statictext", undefined, "Select a session to restore:");
-//instructionsText.alignment = "left";
-
 // Create listbox for session logs
 var logList = restorePanel.add("listbox", undefined, [], { multiselect: false });
-logList.preferredSize = [430, 100];
+logList.preferredSize = [430, 125];
 
 // Add management controls checkbox
 var enableManagementCheckbox = restorePanel.add("checkbox", undefined, "Enable Session Log Management Controls");
@@ -98,12 +105,12 @@ function refreshLogList() {
 
 // Function to set the enabled state of restore panel content
 function setPanelEnabledState(state) {
-    //instructionsText.enabled = state;
     logList.enabled = state;
     enableManagementCheckbox.enabled = state;
     openFolderButton.enabled = state && enableManagementCheckbox.value;
     deleteButton.enabled = state && enableManagementCheckbox.value;
     viewButton.enabled = state && logList.selection && logList.selection.file;
+    sessionNamePanel.enabled = !state; // Enable session name input only when saving
 }
 
 // Function to view log contents
@@ -139,17 +146,16 @@ function viewLogContents(logFile) {
 
 // Radio button handlers
 saveRadio.onClick = function () {
-    setPanelEnabledState(false); // Disable restore panel content
+    setPanelEnabledState(false);
     okButton.text = "OK";
-    okButton.enabled = true; // Ensure OK button is always active when Save Current Session is selected
+    okButton.enabled = true;
     dlg.layout.layout(true);
 };
 
 restoreRadio.onClick = function () {
-    setPanelEnabledState(true); // Enable restore panel content
+    setPanelEnabledState(true);
     okButton.text = "Restore";
     refreshLogList();
-    // Enable OK button only if there is a valid selection in the log list
     okButton.enabled = logList.selection && logList.selection.file;
     dlg.layout.layout(true);
 };
@@ -249,8 +255,24 @@ function saveSession() {
             var seconds = ('0' + theDate.getSeconds()).slice(-2);
             var formattedDate = year + '-' + month + '-' + day + '_' + hours + '-' + minutes + '-' + seconds;
 
-            var logFile = new File(app.preferencesFolder + "/" + "Photoshop Session - " + formattedDate + ".log");
+            // Use custom session name if provided, otherwise use formatted date
+            var sessionName = sessionNameInput.text;
+            // Remove leading/trailing spaces manually since trim() isn't available
+            while (sessionName.charAt(0) === ' ') {
+                sessionName = sessionName.substring(1);
+            }
+            while (sessionName.charAt(sessionName.length - 1) === ' ') {
+                sessionName = sessionName.substring(0, sessionName.length - 1);
+            }
+
+            var fileName = sessionName !== "" ? sessionName : formattedDate;
+
+            // Ensure the filename is valid by removing illegal characters
+            fileName = fileName.replace(/[<>:"\/\\|?*]/g, "-");
+
+            var logFile = new File(app.preferencesFolder + "/" + "Photoshop Session - " + fileName + ".log");
             if (logFile.exists) logFile.remove();
+
             while (app.documents.length > 0) {
                 app.activeDocument = app.documents[0];
                 try {
