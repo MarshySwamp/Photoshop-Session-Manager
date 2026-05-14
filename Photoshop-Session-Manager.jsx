@@ -1,16 +1,14 @@
 /*
 
-Photoshop-Session-Manager-scriptUI-GUI-v2-3B.jsx
+Photoshop-Session-Manager-scriptUI-GUI-v2-3C.jsx
 Stephen Marsh
 
 v1.0 - 27th October 2024, Single session save/restore
 v2.0 - 27th October 2024, Extended the script to work with multiple sessions
 v2.1 - 2nd November 2024, Minor cosmetic layout changes, log files now listed in descending modified sort order
-v2.2 - 9th November 2024, Geek update - exploring semi-structured data, the log files are written and read in .json format instead of plain .txt format
+v2.2 - 9th November 2024, Geek update exploring semi-structured data, the log files are written and read in .json format instead of plain .txt format
+v2.2 - 9th November 2024, Another geek update exploring semi-structured data, the log files are written and read in .xml format instead of plain .json format
 v2.3 - 13th November 2024, Added an option to prompt to save modified documents when closing a session, in addition to the previous save and close option
-v2.3a - 9th August 2025, JSON error logging code updated. Note Windows users may need to set permissions for "Everyone" on the following directory:
-        C:\Users\<username>\AppData\Roaming\Adobe\Adobe Photoshop ####\Adobe Photoshop #### Settings
-v2.3b - 11th August 2025, Log file path directory separator updated to correctly display on Windows. Minor GUI layout change.
 
 https://community.adobe.com/t5/photoshop-ecosystem-discussions/scripts-to-save-amp-restore-photoshop-sessions/m-p/14239969
 
@@ -22,48 +20,14 @@ https://community.adobe.com/t5/photoshop-ecosystem-ideas/restore-previous-sessio
 
 #target photoshop
 
-// JSON polyfill for ExtendScript (ES3)
-if (typeof JSON === "undefined") {
-    JSON = {
-        stringify: function (obj, replacer, space) {
-            var type = typeof obj;
-            if (type === "undefined") return undefined;
-            if (obj === null) return "null";
-            if (type === "boolean" || type === "number") return String(obj);
-            if (type === "string") return '"' + obj.replace(/\\/g, "\\\\").replace(/"/g, '\\"').replace(/\n/g, "\\n").replace(/\r/g, "\\r").replace(/\t/g, "\\t") + '"';
-            if (obj instanceof Array) {
-                var arrItems = [];
-                for (var i = 0; i < obj.length; i++) arrItems.push(JSON.stringify(obj[i]));
-                return "[" + arrItems.join(", ") + "]";
-            }
-            if (type === "object") {
-                var objItems = [];
-                for (var key in obj) {
-                    if (obj.hasOwnProperty(key)) {
-                        var val = JSON.stringify(obj[key]);
-                        if (val !== undefined) objItems.push('"' + key + '": ' + val);
-                    }
-                }
-                if (space) {
-                    return "{\n    " + objItems.join(",\n    ") + "\n}";
-                }
-                return "{" + objItems.join(", ") + "}";
-            }
-        },
-        parse: function (str) {
-            return eval("(" + str + ")");
-        }
-    };
-}
-
 // Set the main UI window
-var dlg = new Window("dialog", "Photoshop Session Manager (v2.3)");
+var dlg = new Window("dialog", "Photoshop Session Manager (v2.3 Beta)");
 dlg.orientation = "column";
 dlg.alignChildren = ["fill", "top"];
 dlg.preferredSize.width = 450;
 
-// Checkbox panel to select the save functions
-var checkboxGroup = dlg.add("panel", undefined, "Save Session Documents");
+// Checkbox panel to select the save or restore functions
+var checkboxGroup = dlg.add("panel", undefined, "Save or Restore Session Documents");
 checkboxGroup.orientation = "column";
 checkboxGroup.alignChildren = ["left", "center"];
 
@@ -73,7 +37,7 @@ buttonPanel.orientation = "column";
 buttonPanel.alignChildren = ["left", "center"];
 
 // "Save Current Session" checkbox
-var saveCheckbox = buttonPanel.add("checkbox", undefined, "Save Current Session Options");
+var saveCheckbox = buttonPanel.add("checkbox", undefined, "Save Current Session Documents");
 saveCheckbox.value = true;
 
 // Add radio buttons for save behavior
@@ -94,14 +58,19 @@ var sessionNameInput = buttonPanel.add("edittext", undefined, "");
 sessionNameInput.helpTip = "(Leave blank to use timestamp as session name)";
 sessionNameInput.preferredSize.width = 450;
 
+// Panel separator line
+var separatorLine = buttonPanel.add("panel");
+separatorLine.alignment = "fill";
+separatorLine.preferredSize.height = 1;
+
+// "Restore Saved Session" checkbox
+var restoreCheckbox = buttonPanel.add("checkbox", undefined, "Restore Saved Session Documents");
+
 // Create restore session panel (initially inactive)
-var restorePanel = dlg.add("panel", undefined, "Restore Session Documents");
+var restorePanel = dlg.add("panel", undefined, "Restore Saved Session Options");
 restorePanel.orientation = "column";
 restorePanel.alignChildren = ["fill", "top"];
 restorePanel.visible = true;
-
-// "Restore Saved Session" checkbox
-var restoreCheckbox = restorePanel.add("checkbox", undefined, "Restore Saved Session Options");
 
 // Create listbox for session logs
 var logList = restorePanel.add("listbox", undefined, [], { multiselect: false });
@@ -189,8 +158,6 @@ enableManagementCheckbox.onClick = function () {
 
 // Open folder button handler
 openFolderButton.onClick = function () {
-    // Mac: ~/Library/Preferences/Adobe Photoshop #### Settings
-    // Win: C:\Users\<username>\AppData\Roaming\Adobe\Adobe Photoshop ####\Adobe Photoshop #### Settings
     Folder(app.preferencesFolder).execute();
 };
 
@@ -204,9 +171,8 @@ deleteButton.onClick = function () {
             try {
                 selectedFile.remove();
                 refreshLogListByModifed();
-            } catch (error) {
-                alert("Error deleting file: " + "\r" + error + "\r" + 'Line: ' + error.line);
-
+            } catch (e) {
+                alert("Error deleting file: " + e.message);
             }
         }
     }
@@ -247,77 +213,65 @@ dlg.show();
 // Functions
 
 function setPanelEnabledState(state) {
-    try {
-        logList.enabled = state;
-        enableManagementCheckbox.enabled = state;
-        openFolderButton.enabled = state && enableManagementCheckbox.value;
-        deleteButton.enabled = state && enableManagementCheckbox.value;
-        viewButton.enabled = state && logList.selection && logList.selection.file;
-        sessionNameInput.enabled = !state; // Enable session name input only when saving
-        saveOptionsGroup.enabled = !state; // Enable radio buttons only when saving
-        // Set the text color to dimmed gray when restore is active
-        sessionNameHelp.graphics.foregroundColor = sessionNameHelp.graphics.newPen(
-            sessionNameHelp.graphics.PenType.SOLID_COLOR,
-            state ? [0.5, 0.5, 0.5] : [1, 1, 1],
-            1
-        );
-    } catch (e) {
-        alert("Error:\n" + e.message + "\nLine: " + e.line);
-    }
+    logList.enabled = state;
+    enableManagementCheckbox.enabled = state;
+    openFolderButton.enabled = state && enableManagementCheckbox.value;
+    deleteButton.enabled = state && enableManagementCheckbox.value;
+    viewButton.enabled = state && logList.selection && logList.selection.file;
+    sessionNameInput.enabled = !state; // Enable session name input only when saving
+    saveOptionsGroup.enabled = !state; // Enable radio buttons only when saving
+    // Set the text color to dimmed gray when restore is active
+    sessionNameHelp.graphics.foregroundColor = sessionNameHelp.graphics.newPen(
+        sessionNameHelp.graphics.PenType.SOLID_COLOR,
+        state ? [0.5, 0.5, 0.5] : [1, 1, 1],
+        1
+    );
 }
 
 function refreshLogListByModifed() {
-    try {
-        logList.removeAll();
-        // Mac: ~/Library/Preferences/Adobe Photoshop #### Settings
-        // Win: C:\Users\<username>\AppData\Roaming\Adobe\Adobe Photoshop ####\Adobe Photoshop #### Settings
-        var logFilePath = Folder(app.preferencesFolder);
-        var logFiles = logFilePath.getFiles("Photoshop Session - *.json");
+    logList.removeAll();
+    // ~/Library/Preferences/Adobe Photoshop #### Settings
+    var logFilePath = Folder(app.preferencesFolder);
+    var logFiles = logFilePath.getFiles("Photoshop Session - *.xml");
 
-        if (logFiles && logFiles.length > 0) {
-            // Sort the files by modified date in descending order
-            logFiles.sort(function (a, b) {
-                return b.modified - a.modified;
-            });
+    if (logFiles && logFiles.length > 0) {
+        // Sort the files by modified date in descending order
+        logFiles.sort(function (a, b) {
+            return b.modified - a.modified;
+        });
 
-            // Add each log file to the list
-            for (var i = 0; i < logFiles.length; i++) {
-                var logFile = logFiles[i];
-                var item = logList.add("item", decodeURI(logFile.name));
-                item.file = logFile;
-            }
-
-            logList.selection = 0;
-            deleteButton.enabled = enableManagementCheckbox.value;
-            openFolderButton.enabled = enableManagementCheckbox.value;
-            viewButton.enabled = true;
-            saveButton.enabled = true;
-        } else {
-            logList.add("item", "No session log files found");
-            deleteButton.enabled = false;
-            openFolderButton.enabled = false;
-            viewButton.enabled = false;
-            saveButton.enabled = false;
+        // Add each log file to the list
+        for (var i = 0; i < logFiles.length; i++) {
+            var logFile = logFiles[i];
+            var item = logList.add("item", decodeURI(logFile.name));
+            item.file = logFile;
         }
-    } catch (e) {
-        alert("Error:\n" + e.message + "\nLine: " + e.line);
+
+        logList.selection = 0;
+        deleteButton.enabled = enableManagementCheckbox.value;
+        openFolderButton.enabled = enableManagementCheckbox.value;
+        viewButton.enabled = true;
+        saveButton.enabled = true;
+    } else {
+        logList.add("item", "No session log files found");
+        deleteButton.enabled = false;
+        openFolderButton.enabled = false;
+        viewButton.enabled = false;
+        saveButton.enabled = false;
     }
 }
 
-function restoreSession(jsonFile) {
+function restoreSession(xmlFile) {
     try {
-        // Read and parse JSON file
-        jsonFile.open("r");
-        var jsonData = jsonFile.read();
-        jsonFile.close();
-
-        var sessionData = JSON.parse(jsonData);
-        var filePaths = sessionData.filePaths;
-        var theActiveDocName = sessionData.activeDocumentName;
-
+        // Read and parse XML file
+        xmlFile.open("r");
+        var xmlData = XML(xmlFile.read());
+        xmlFile.close();
+        var filePaths = xmlData.filePath;
+        var theActiveDocName = xmlData.activeDocumentName.toString();
         // Open each file in the session data
-        for (var i = 0; i < filePaths.length; i++) {
-            var filePath = filePaths[i];
+        for (var i = 0; i < filePaths.length(); i++) {
+            var filePath = filePaths[i].toString();
             var docFile = new File(filePath);
             if (docFile.exists) {
                 open(docFile);
@@ -325,7 +279,6 @@ function restoreSession(jsonFile) {
                 alert("File not found: " + filePath);
             }
         }
-
         // Set the active document based on session data
         for (var a = 0; a < app.documents.length; a++) {
             if (app.documents[a].name === theActiveDocName) {
@@ -333,9 +286,8 @@ function restoreSession(jsonFile) {
                 break;
             }
         }
-
-    } catch (error) {
-        alert("Error restoring session: " + "\r" + error + "\r" + 'Line: ' + error.line);
+    } catch (e) {
+        alert("Error restoring session: " + e.message);
     }
 }
 
@@ -349,136 +301,102 @@ function saveSession() {
         var minutes = ('0' + theDate.getMinutes()).slice(-2);
         var seconds = ('0' + theDate.getSeconds()).slice(-2);
         var formattedDate = year + '-' + month + '-' + day + '_' + hours + ':' + minutes + ':' + seconds;
-
         var sessionName = sessionNameInput.text.replace(/^\s+|\s+$/g, ''); // remove leading and trailing whitespace
         var fileName = sessionName !== "" ? sessionName : formattedDate;
         fileName = fileName.replace(/[<>:"\/\\|?*]/g, "-");
-
-        // Mac: ~/Library/Preferences/Adobe Photoshop #### Settings
-        // Win: C:\Users\<username>\AppData\Roaming\Adobe\Adobe Photoshop ####\Adobe Photoshop #### Settings
-        var jsonFile = new File(app.preferencesFolder + "/" + "Photoshop Session - " + fileName + ".json");
-
+        var xmlFile = new File(app.preferencesFolder + "/" + "Photoshop Session - " + fileName + ".xml");
         // Add confirmation check if file exists
-        if (jsonFile.exists) {
+        if (xmlFile.exists) {
             var confirmOverwrite = confirm("A session file with this name already exists:\n" +
-                decodeURI(jsonFile.name) +
+                decodeURI(xmlFile.name) +
                 "\n\nDo you want to overwrite it?");
             if (!confirmOverwrite) {
                 // If user cancels, return without saving
                 return;
             }
             // If confirmed, remove the existing file
-            jsonFile.remove();
+            xmlFile.remove();
         }
-
-        // Create JSON structure for the session data
-        var sessionData = {
-            sessionName: fileName,
-            activeDocumentName: activeDocument.name,
-            filePaths: []
-        };
-
+        // Create XML structure for the session data
+        var xmlData = new XML("<session></session>");
+        var sessionElement = new XML("<sessionName></sessionName>");
+        sessionElement.appendChild(fileName);
+        var activeDocElement = new XML("<activeDocumentName></activeDocumentName>");
+        activeDocElement.appendChild(activeDocument.name);
+        xmlData.appendChild(sessionElement);
+        xmlData.appendChild(activeDocElement);
         // Collect file paths from open documents
         while (app.documents.length > 0) {
             app.activeDocument = app.documents[0];
             try {
                 var filePath = activeDocument.fullName.fsName;
-                sessionData.filePaths.push(filePath);
-            } catch (error) { alert("Unexpected Error: " + "\r" + error + "\r" + 'Line: ' + error.line); }
+                var fileElement = new XML("<filePath></filePath>");
+                fileElement.appendChild(filePath);
+                xmlData.appendChild(fileElement);
+            } catch (e) { }
             // Use the selected save option
             var saveOption = saveAndCloseRadio.value ? SaveOptions.SAVECHANGES : SaveOptions.PROMPTTOSAVECHANGES;
             activeDocument.close(saveOption);
         }
+        // Write XML data to file
+        xmlFile.open("w");
+        xmlFile.write(xmlData.toXMLString());
+        xmlFile.close();
 
-        // Write JSON data to file
-        jsonFile.open("w");
-        jsonFile.write(JSON.stringify(sessionData, null, true));
-        jsonFile.close();
-
-    } catch (error) {
-        alert("Error saving session: " + "\r" + error + "\r" + 'Line: ' + error.line);
-
+    } catch (e) {
+        alert("Error saving session: " + e.message);
     }
 }
 
 function viewLogContents(logFile) {
+    var logContents = readPref(logFile).join("\n");
     try {
-        // Read the log file contents
-        var lines = readPref(logFile);
-        var jsonString = lines.join("\n");
-
-        // Parse the JSON to extract structured data
-        var sessionData = JSON.parse(jsonString);
-
-        // Build formatted display string - file paths only
-        var displayLines = [];
-        displayLines.push("Session File Paths:");
-
-        var filePaths = sessionData.filePaths;
-        for (var i = 0; i < filePaths.length; i++) {
-            // Normalise to forward slashes for cross-platform display
-            displayLines.push(filePaths[i].replace(/\\/g, "/"));
-        }
-
-        var logContents = displayLines.join("\n");
-
-        // Create a view window to display the log contents
-        var viewWindow = new Window("dialog", "Log Contents: " + decodeURI(logFile.name));
-        viewWindow.orientation = "column";
-        viewWindow.alignChildren = ["fill", "top"];
-
-        // Add a scrollable text area to display the log contents
-        var logTextArea = viewWindow.add("edittext", undefined, logContents, {
-            multiline: true,
-            scrollable: true
-        });
-        logTextArea.preferredSize.width = 550;
-        logTextArea.preferredSize.height = 300;
-
-        // Intercept key events to prevent modifications
-        logTextArea.addEventListener('keydown', function (event) {
-            event.preventDefault();
-        });
-
-        // Add a close button
-        var closeButtonGroup = viewWindow.add("group");
-        closeButtonGroup.orientation = "row";
-        closeButtonGroup.alignChildren = ["right", "center"];
-        var closeButton = closeButtonGroup.add("button", undefined, "Close");
-
-        closeButton.onClick = function () {
-            viewWindow.close();
-        };
-
-        // Show the log view window
-        viewWindow.show();
+        var xmlData = new XML(logContents);
+        var formattedContents = xmlData.toXMLString(); // Format XML with indentations
     } catch (e) {
-        alert("Error:\n" + e.message + "\nLine: " + e.line);
+        formattedContents = "Error parsing XML: " + e.message;
     }
+    // Create view window
+    var viewWindow = new Window("dialog", "Log Contents: " + decodeURI(logFile.name));
+    viewWindow.orientation = "column";
+    viewWindow.alignChildren = ["fill", "top"];
+    // Add scrollable text area
+    var logTextArea = viewWindow.add("edittext", undefined, formattedContents, {
+        multiline: true,
+        scrollable: true
+    });
+    logTextArea.preferredSize.width = 550;
+    logTextArea.preferredSize.height = 300;
+    // Intercept key events to prevent modifications
+    logTextArea.addEventListener('keydown', function (event) {
+        event.preventDefault();
+    });
+    // Add close button
+    var closeButtonGroup = viewWindow.add("group");
+    closeButtonGroup.orientation = "row";
+    closeButtonGroup.alignChildren = ["right", "center"];
+    var closeButton = closeButtonGroup.add("button", undefined, "Close");
+    closeButton.onClick = function () {
+        viewWindow.close();
+    };
+    // Show the view log window
+    viewWindow.show();
 }
 
 function writePref(logFile, string) {
-    try {
-        logFile.open("e");
-        logFile.seek(0, 2);
-        logFile.writeln(string);
-        logFile.close();
-    } catch (e) {
-        alert("Error:\n" + e.message + "\nLine: " + e.line);
-    }
+    logFile.open("e");
+    logFile.seek(0, 2);
+    logFile.writeln(string);
+    logFile.close();
 }
 
 function readPref(logFile) {
-    try {
-        if (!logFile.exists) return [];
-        logFile.open("r");
-        var logContents = [];
-        while (!logFile.eof) {
-            logContents.push(logFile.readln());
-        }
-        logFile.close();
-        return logContents;
-    } catch (e) {
-        alert("Error:\n" + e.message + "\nLine: " + e.line);
+    if (!logFile.exists) return [];
+    logFile.open("r");
+    var logContents = [];
+    while (!logFile.eof) {
+        logContents.push(logFile.readln());
     }
+    logFile.close();
+    return logContents;
 }
