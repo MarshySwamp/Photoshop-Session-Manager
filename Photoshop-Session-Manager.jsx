@@ -1,8 +1,9 @@
 /*
-Photoshop-Session-Manager-scriptUI-GUI-v2.jsx
+Photoshop-Session-Manager-scriptUI-GUI-v2-1A.jsx
 Stephen Marsh
 v1.0 - 27th October 2024, Single session save/restore
 v2.0 - 27th October 2024, Extended the script to work with multiple sessions
+v2.1 - 2nd November 2024, Minor cosmetic layout changes
 https://community.adobe.com/t5/photoshop-ecosystem-discussions/scripts-to-save-amp-restore-photoshop-sessions/m-p/14239969
 Inspiration from:
 https://community.adobe.com/t5/photoshop-ecosystem-ideas/please-session-saving/idc-p/14169472
@@ -12,31 +13,38 @@ https://community.adobe.com/t5/photoshop-ecosystem-ideas/restore-previous-sessio
 #target photoshop
 
 // Set the main UI window
-var dlg = new Window("dialog", "Photoshop Session Manager (v2.0)");
+var dlg = new Window("dialog", "Photoshop Session Manager (v2.1)");
 dlg.orientation = "column";
 dlg.alignChildren = ["fill", "top"];
 dlg.preferredSize.width = 450;
 
-// Radio buttons to select which script to run
-var radioGroup = dlg.add("panel", undefined, "Save or Restore Session Documents");
-radioGroup.orientation = "column";
-radioGroup.alignChildren = ["left", "center"];
-var saveRadio = radioGroup.add("radiobutton", undefined, "Save Current Session");
-var restoreRadio = radioGroup.add("radiobutton", undefined, "Restore Saved Session");
-saveRadio.value = true;
+// Checkbox panel to select which script to run
+var checkboxGroup = dlg.add("panel", undefined, "Save or Restore Session Documents");
+checkboxGroup.orientation = "column";
+checkboxGroup.alignChildren = ["left", "center"];
 
-// Add session name panel
-var sessionNamePanel = dlg.add("panel", undefined, "Optional Custom Session Name");
-sessionNamePanel.orientation = "column";
-sessionNamePanel.alignChildren = ["fill", "top"];
+// Group the checkboxes in a nested panel to keep them mutually exclusive
+var buttonPanel = checkboxGroup.add("group");
+buttonPanel.orientation = "column";
+buttonPanel.alignChildren = ["left", "center"];
 
-// Add edit text field for custom session name
-var sessionNameInput = sessionNamePanel.add("edittext");
+// "Save Current Session" checkbox
+var saveCheckbox = buttonPanel.add("checkbox", undefined, "Save && Close Current Session Documents");
+saveCheckbox.value = true;
+
+// Optional session naming field label
+var sessionNameHelp = buttonPanel.add("statictext", undefined, "Optional Custom Session Name:");
+sessionNameHelp.graphics.foregroundColor = sessionNameHelp.graphics.newPen(sessionNameHelp.graphics.PenType.SOLID_COLOR, [0.5, 0.5, 0.5], 1);
+
+// Optional session naming field
+var sessionNameInput = buttonPanel.add("edittext", undefined, "");
+sessionNameInput.helpTip = "(Leave blank to use timestamp as session name)";
 sessionNameInput.preferredSize.width = 450;
-var sessionNameHelp = sessionNamePanel.add("statictext", undefined, "(Leave blank to use timestamp as session name)");
-sessionNameHelp.graphics.foregroundColor = sessionNameHelp.graphics.newPen(sessionNameHelp.graphics.PenType.SOLID_COLOR, [0.75, 0.75, 0.75], 1);
 
-// Create restore session panel (always visible but inactive initially)
+// "Restore Saved Session" checkbox
+var restoreCheckbox = buttonPanel.add("checkbox", undefined, "Restore Saved Session Documents");
+
+// Create restore session panel (initially inactive)
 var restorePanel = dlg.add("panel", undefined, "Restore Saved Session Options");
 restorePanel.orientation = "column";
 restorePanel.alignChildren = ["fill", "top"];
@@ -72,12 +80,9 @@ var cancelButton = buttonGroup.add("button", undefined, "Cancel");
 var okButton = buttonGroup.add("button", undefined, "OK", { name: "ok" });
 okButton.preferredSize.width = 90;
 
-
+// Refresh log list function
 function refreshLogList() {
-    // Clear existing items
     logList.removeAll();
-
-    // Get all log files from preferences folder
     var logFilePath = Folder(app.preferencesFolder);
     var logFiles = logFilePath.getFiles("Photoshop Session - *.log");
 
@@ -101,64 +106,41 @@ function refreshLogList() {
     }
 }
 
+// Function to enable/disable panels based on checkbox state
 function setPanelEnabledState(state) {
     logList.enabled = state;
     enableManagementCheckbox.enabled = state;
     openFolderButton.enabled = state && enableManagementCheckbox.value;
     deleteButton.enabled = state && enableManagementCheckbox.value;
     viewButton.enabled = state && logList.selection && logList.selection.file;
-    sessionNamePanel.enabled = !state; // Enable session name input only when saving
+    sessionNameInput.enabled = !state; // Enable session name input only when saving
 }
 
-function viewLogContents(logFile) {
-    var logContents = readPref(logFile);
-
-    // Create view window
-    var viewWindow = new Window("dialog", "Log Contents: " + decodeURI(logFile.name));
-    viewWindow.orientation = "column";
-    viewWindow.alignChildren = ["fill", "top"];
-
-    // Add scrollable text area
-    var logTextArea = viewWindow.add("edittext", undefined, logContents.join("\n"), {
-        multiline: true,
-        scrollable: true
-    });
-    logTextArea.preferredSize.width = 550;
-    logTextArea.preferredSize.height = 300;
-    logTextArea.enabled = false; // Make it read-only
-
-    // Add close button
-    var closeButtonGroup = viewWindow.add("group");
-    closeButtonGroup.orientation = "row";
-    closeButtonGroup.alignChildren = ["right", "center"];
-    var closeButton = closeButtonGroup.add("button", undefined, "Close");
-
-    closeButton.onClick = function () {
-        viewWindow.close();
-    };
-
-    viewWindow.show();
-}
-
-// Radio button handlers
-saveRadio.onClick = function () {
-    setPanelEnabledState(false);
-    okButton.text = "OK";
-    okButton.enabled = true;
-    dlg.layout.layout(true);
+// Checkbox handlers for checkbox mutual exclusivity
+saveCheckbox.onClick = function () {
+    if (saveCheckbox.value) {
+        restoreCheckbox.value = false;
+        setPanelEnabledState(false);
+        okButton.text = "OK";
+        okButton.enabled = true;
+        dlg.layout.layout(true);
+    }
 };
 
-restoreRadio.onClick = function () {
-    setPanelEnabledState(true);
-    okButton.text = "Restore";
-    refreshLogList();
-    okButton.enabled = logList.selection && logList.selection.file;
-    dlg.layout.layout(true);
+restoreCheckbox.onClick = function () {
+    if (restoreCheckbox.value) {
+        saveCheckbox.value = false;
+        setPanelEnabledState(true);
+        okButton.text = "Restore";
+        refreshLogList();
+        okButton.enabled = logList.selection && logList.selection.file;
+        dlg.layout.layout(true);
+    }
 };
 
 // Ensure OK button state updates if logList selection changes
 logList.onChange = function () {
-    if (restoreRadio.value) {
+    if (restoreCheckbox.value) {
         okButton.enabled = logList.selection && logList.selection.file;
     }
 };
@@ -203,18 +185,17 @@ cancelButton.onClick = function () {
     dlg.close();
 };
 
-// OK button handler with exit
+// OK button handler with exit/return
 okButton.onClick = function () {
-    if (saveRadio.value) {
-        // Check for open documents before proceeding with save
+    if (saveCheckbox.value) {
         if (app.documents.length === 0) {
             alert("No documents open in the current session to save.");
-            dlg.close(); // Close the dialog
-            return;      // Return early to stop execution
+            dlg.close();
+            return;
         }
         saveSession();
         dlg.close();
-    } else if (restoreRadio.value && logList.selection && logList.selection.file) {
+    } else if (restoreCheckbox.value && logList.selection && logList.selection.file) {
         restoreSpecificSession(logList.selection.file);
         dlg.close();
     }
@@ -223,14 +204,12 @@ okButton.onClick = function () {
 function restoreSpecificSession(logFile) {
     try {
         var logContents = readPref(logFile);
-        var hasAlerted = false;
 
         if (logContents.length > 0) {
-            // Restore documents from the log file
             for (var m = 4; m < logContents.length; m++) {
-                var filePath = logContents[m].replace(/^\s+|\s+$/g, '');  // Remove leading/trailing whitespace
+                var filePath = logContents[m].replace(/^\s+|\s+$/g, '');
 
-                if (filePath !== "") {  // Check if the path is not empty
+                if (filePath !== "") {
                     var docFile = new File(filePath);
                     if (docFile.exists) {
                         open(docFile);
@@ -240,8 +219,7 @@ function restoreSpecificSession(logFile) {
                 }
             }
 
-            // Set the previously active document after the session has been restored
-            var theActiveDocName = logContents[2]; // zero indexed, third line
+            var theActiveDocName = logContents[2];
             for (var a = 0; a < app.documents.length; a++) {
                 if (app.documents[a].name === theActiveDocName) {
                     app.activeDocument = app.documents[a];
@@ -251,7 +229,6 @@ function restoreSpecificSession(logFile) {
 
         } else {
             alert("The selected log file is empty!");
-            hasAlerted = true;
         }
     } catch (e) {
         alert("Error restoring session: " + e.message);
@@ -269,9 +246,7 @@ function saveSession() {
         var seconds = ('0' + theDate.getSeconds()).slice(-2);
         var formattedDate = year + '-' + month + '-' + day + '_' + hours + '-' + minutes + '-' + seconds;
 
-        // Use custom session name if provided, otherwise use formatted date
         var sessionName = sessionNameInput.text;
-        // Remove leading/trailing spaces manually since trim() isn't available
         while (sessionName.charAt(0) === ' ') {
             sessionName = sessionName.substring(1);
         }
@@ -279,13 +254,11 @@ function saveSession() {
             sessionName = sessionName.substring(0, sessionName.length - 1);
         }
         var fileName = sessionName !== "" ? sessionName : formattedDate;
-        // Ensure the filename is valid by removing illegal characters
         fileName = fileName.replace(/[<>:"\/\\|?*]/g, "-");
 
         var logFile = new File(app.preferencesFolder + "/" + "Photoshop Session - " + fileName + ".log");
         if (logFile.exists) logFile.remove();
 
-        // Log the active document name on line 2
         logFile.open("a");
         logFile.writeln("--------------------\nActive Doc:\n" + activeDocument.name + "\n--------------------");
         logFile.close();
@@ -295,35 +268,62 @@ function saveSession() {
             try {
                 activeDocument.path;
                 writePref(logFile, activeDocument.fullName.fsName);
-                activeDocument.close(SaveOptions.DONOTSAVECHANGES);
-            } catch (e) {
-                writePref(logFile, activeDocument.name);
-                activeDocument.close(SaveOptions.DONOTSAVECHANGES);
-            }
+            } catch (e) { }
+            activeDocument.close(SaveOptions.DONOTSAVECHANGES);
         }
+
     } catch (e) {
         alert("Error saving session: " + e.message);
     }
 }
 
-function writePref(logFile, content) {
-    logFile.open("a");
-    logFile.writeln(content);
+function viewLogContents(logFile) {
+    var logContents = readPref(logFile);
+
+    // Create view window
+    var viewWindow = new Window("dialog", "Log Contents: " + decodeURI(logFile.name));
+    viewWindow.orientation = "column";
+    viewWindow.alignChildren = ["fill", "top"];
+
+    // Add scrollable text area
+    var logTextArea = viewWindow.add("edittext", undefined, logContents.join("\n"), {
+        multiline: true,
+        scrollable: true
+    });
+    logTextArea.preferredSize.width = 550;
+    logTextArea.preferredSize.height = 300;
+    logTextArea.enabled = false; // Make it read-only
+
+    // Add close button
+    var closeButtonGroup = viewWindow.add("group");
+    closeButtonGroup.orientation = "row";
+    closeButtonGroup.alignChildren = ["right", "center"];
+    var closeButton = closeButtonGroup.add("button", undefined, "Close");
+
+    closeButton.onClick = function () {
+        viewWindow.close();
+    };
+
+    viewWindow.show();
+}
+
+function writePref(logFile, string) {
+    logFile.open("e");
+    logFile.seek(0, 2);
+    logFile.writeln(string);
     logFile.close();
 }
 
 function readPref(logFile) {
+    if (!logFile.exists) return [];
     logFile.open("r");
-    var content = [];
+    var logContents = [];
     while (!logFile.eof) {
-        content.push(logFile.readln());
+        logContents.push(logFile.readln());
     }
     logFile.close();
-    return content;
+    return logContents;
 }
 
-// Set initial dimmed state for restore panel
-setPanelEnabledState(false);
-
-// Display the dialog
+// Open the dialog
 dlg.show();
