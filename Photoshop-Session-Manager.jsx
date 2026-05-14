@@ -1,8 +1,9 @@
 /*
 
-Photoshop-Session-Manager-scriptUI-GUI-v2-4.jsx
+Photoshop-Session-Manager-scriptUI-GUI-v2-5.jsx
 Stephen Marsh
 
+Changelog:
 v1.0 - 27th October 2024, Single session save/restore
 v2.0 - 27th October 2024, Extended the script to work with multiple sessions
 v2.1 - 2nd November 2024, Minor cosmetic layout changes, log files now listed in descending modified sort order
@@ -12,6 +13,7 @@ v2.3a - 9th August 2025, JSON error logging code updated. Note Windows users may
         C:\Users\<username>\AppData\Roaming\Adobe\Adobe Photoshop ####\Adobe Photoshop #### Settings
 v2.3b - 11th August 2025, Log file path directory separator updated to correctly display on Windows. Minor GUI layout change.
 v2.4 - 23rd April 2026, Open document name is used as session name when a single doc is open and no custom name entered
+v2.5 - 8th May 2026, Zoom level is saved on close and restored per opened document, this uses a hack which leaves the open doc in a modified, unsaved state!
 
 https://community.adobe.com/t5/photoshop-ecosystem-discussions/scripts-to-save-amp-restore-photoshop-sessions/m-p/14239969
 
@@ -58,7 +60,7 @@ if (typeof JSON === "undefined") {
 }
 
 // Set the main UI window
-var dlg = new Window("dialog", "Photoshop Session Manager (v2.4)");
+var dlg = new Window("dialog", "Photoshop Session Manager (v2.5)");
 dlg.orientation = "column";
 dlg.alignChildren = ["fill", "top"];
 dlg.preferredSize.width = 450;
@@ -244,6 +246,7 @@ saveButton.onClick = function () {
 // Show the main script dialog window
 dlg.show();
 
+
 // Functions
 
 function setPanelEnabledState(state) {
@@ -317,12 +320,20 @@ function restoreSession(jsonFile) {
 
         // Open each file in the session data
         for (var i = 0; i < filePaths.length; i++) {
-            var filePath = filePaths[i];
-            var docFile = new File(filePath);
+            var theFiles = filePaths[i];
+            var docFile = new File(theFiles.path);
             if (docFile.exists) {
                 open(docFile);
+
+                // Apply the saved zoom level if available, otherwise leave at default
+                // Note: This uses a hack which leaves the open doc in a modified, unsaved state!
+                if (theFiles.zoom !== undefined) {
+                    setZoomLevel(theFiles.zoom);
+                    clearHistory();
+                    deleteHistoryState();
+                }
             } else {
-                alert("File not found: " + filePath);
+                alert("File not found: " + theFiles.path);
             }
         }
 
@@ -391,7 +402,14 @@ function saveSession() {
             app.activeDocument = app.documents[0];
             try {
                 var filePath = activeDocument.fullName.fsName;
-                sessionData.filePaths.push(filePath);
+
+                // Read the current zoom
+                var docRef = new ActionReference();
+                docRef.putEnumerated(charIDToTypeID("Dcmn"), charIDToTypeID("Ordn"), charIDToTypeID("Trgt"));
+                var docDesc = executeActionGet(docRef);
+                var getZoom = docDesc.getDouble(stringIDToTypeID("zoom")) * 100;
+
+                sessionData.filePaths.push({ path: filePath, zoom: getZoom });
             } catch (error) { alert("Unexpected Error: " + "\r" + error + "\r" + 'Line: ' + error.line); }
             var saveOption = saveAndCloseRadio.value ? SaveOptions.SAVECHANGES : SaveOptions.PROMPTTOSAVECHANGES;
             activeDocument.close(saveOption);
@@ -422,7 +440,7 @@ function viewLogContents(logFile) {
         var filePaths = sessionData.filePaths;
         for (var i = 0; i < filePaths.length; i++) {
             // Normalise to forward slashes for cross-platform display
-            displayLines.push(filePaths[i].replace(/\\/g, "/"));
+            displayLines.push(filePaths[i].path.replace(/\\/g, "/"));
         }
 
         var logContents = displayLines.join("\n");
@@ -486,4 +504,59 @@ function readPref(logFile) {
     } catch (e) {
         alert("Error:\n" + e.message + "\nLine: " + e.line);
     }
+}
+
+function setZoomLevel(zoomPercent) {
+    if (zoomPercent < 1) zoomPercent = 1;
+
+    var originalRes = activeDocument.resolution;
+
+    // Get the screen resolution
+    var screenRef = new ActionReference();
+    screenRef.putEnumerated(charIDToTypeID("capp"), charIDToTypeID("Ordn"), charIDToTypeID("Trgt"));
+    var screenRes = executeActionGet(screenRef)
+        .getObjectValue(stringIDToTypeID("unitsPrefs"))
+        .getUnitDoubleValue(stringIDToTypeID("newDocPresetScreenResolution")) / 72;
+
+    // Change the resolution temporarily
+    activeDocument.resizeImage(undefined, undefined, screenRes / (zoomPercent / 100), ResampleMethod.NONE);
+
+    // Zoom to print size
+    var printDesc = new ActionDescriptor();
+    var printRef = new ActionReference();
+    printRef.putEnumerated(charIDToTypeID("Mn  "), charIDToTypeID("MnIt"), charIDToTypeID("PrnS"));
+    printDesc.putReference(charIDToTypeID("null"), printRef);
+    executeAction(charIDToTypeID("slct"), printDesc, DialogModes.NO);
+
+    // Restore the original resolution
+    activeDocument.resizeImage(undefined, undefined, originalRes, ResampleMethod.NONE);
+}
+
+function clearHistory() {
+	var c2t = function (s) {
+		return app.charIDToTypeID(s);
+	};
+	var s2t = function (s) {
+		return app.stringIDToTypeID(s);
+	};
+	var descriptor = new ActionDescriptor();
+	var reference = new ActionReference();
+	reference.putProperty( s2t( "property" ), s2t( "historyStates" ));
+	reference.putEnumerated( s2t( "document" ), s2t( "ordinal" ), s2t( "targetEnum" ));
+	descriptor.putReference( c2t( "null" ), reference );
+	executeAction( s2t( "clearEvent" ), descriptor, DialogModes.NO );
+}
+
+function deleteHistoryState() {
+	var c2t = function (s) {
+		return app.charIDToTypeID(s);
+	};
+	var s2t = function (s) {
+		return app.stringIDToTypeID(s);
+	};
+	var descriptor = new ActionDescriptor();
+	var reference = new ActionReference();
+	reference.putProperty( c2t( "HstS" ), s2t( "currentHistoryState" ));
+	descriptor.putReference( c2t( "null" ), reference );
+	executeAction( s2t( "delete" ), descriptor, DialogModes.NO );
 }
