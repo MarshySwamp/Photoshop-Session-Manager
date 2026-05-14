@@ -1,9 +1,9 @@
 /*
-Photoshop-Session-Manager-scriptUI-GUI-v2-1A.jsx
+Photoshop-Session-Manager-scriptUI-GUI-v2-1B.jsx
 Stephen Marsh
 v1.0 - 27th October 2024, Single session save/restore
 v2.0 - 27th October 2024, Extended the script to work with multiple sessions
-v2.1 - 2nd November 2024, Minor cosmetic layout changes
+v2.1 - 2nd November 2024, Minor cosmetic layout changes, log files now listed in descending modified sort order
 https://community.adobe.com/t5/photoshop-ecosystem-discussions/scripts-to-save-amp-restore-photoshop-sessions/m-p/14239969
 Inspiration from:
 https://community.adobe.com/t5/photoshop-ecosystem-ideas/please-session-saving/idc-p/14169472
@@ -18,7 +18,7 @@ dlg.orientation = "column";
 dlg.alignChildren = ["fill", "top"];
 dlg.preferredSize.width = 450;
 
-// Checkbox panel to select which script to run
+// Checkbox panel to select the save or restore functions
 var checkboxGroup = dlg.add("panel", undefined, "Save or Restore Session Documents");
 checkboxGroup.orientation = "column";
 checkboxGroup.alignChildren = ["left", "center"];
@@ -34,12 +34,16 @@ saveCheckbox.value = true;
 
 // Optional session naming field label
 var sessionNameHelp = buttonPanel.add("statictext", undefined, "Optional Custom Session Name:");
-sessionNameHelp.graphics.foregroundColor = sessionNameHelp.graphics.newPen(sessionNameHelp.graphics.PenType.SOLID_COLOR, [0.5, 0.5, 0.5], 1);
 
 // Optional session naming field
 var sessionNameInput = buttonPanel.add("edittext", undefined, "");
 sessionNameInput.helpTip = "(Leave blank to use timestamp as session name)";
 sessionNameInput.preferredSize.width = 450;
+
+// Panel separator line
+var separatorLine = buttonPanel.add("panel");
+separatorLine.alignment = "fill";
+separatorLine.preferredSize.height = 1;
 
 // "Restore Saved Session" checkbox
 var restoreCheckbox = buttonPanel.add("checkbox", undefined, "Restore Saved Session Documents");
@@ -61,13 +65,13 @@ enableManagementCheckbox.value = false;
 // Create management buttons group
 var managementButtonGroup = restorePanel.add("group");
 managementButtonGroup.orientation = "row";
-managementButtonGroup.alignChildren = ["left", "center"];
+managementButtonGroup.alignChildren = ["fill", "center"];
 
-var openFolderButton = managementButtonGroup.add("button", undefined, "Open Log Directory");
-var deleteButton = managementButtonGroup.add("button", undefined, "Delete Selected Log");
 var viewButton = managementButtonGroup.add("button", undefined, "View Log");
+var deleteButton = managementButtonGroup.add("button", undefined, "Delete Selected Log");
+var openFolderButton = managementButtonGroup.add("button", undefined, "Open Log Directory");
 
-// Initially disable management buttons
+// Initially disable the management buttons
 openFolderButton.enabled = false;
 deleteButton.enabled = false;
 viewButton.enabled = false;
@@ -77,12 +81,13 @@ var buttonGroup = dlg.add("group");
 buttonGroup.orientation = "row";
 buttonGroup.alignChildren = ["right", "center"];
 var cancelButton = buttonGroup.add("button", undefined, "Cancel");
-var okButton = buttonGroup.add("button", undefined, "OK", { name: "ok" });
-okButton.preferredSize.width = 90;
+var saveButton = buttonGroup.add("button", undefined, "Save", { name: "save" });
+saveButton.preferredSize.width = 90;
 
-// Refresh log list function
+/*
 function refreshLogList() {
     logList.removeAll();
+    // ~/Library/Preferences/Adobe Photoshop #### Settings
     var logFilePath = Folder(app.preferencesFolder);
     var logFiles = logFilePath.getFiles("Photoshop Session - *.log");
 
@@ -96,17 +101,50 @@ function refreshLogList() {
         deleteButton.enabled = enableManagementCheckbox.value;
         openFolderButton.enabled = enableManagementCheckbox.value;
         viewButton.enabled = true;
-        okButton.enabled = true;
+        saveButton.enabled = true;
     } else {
         logList.add("item", "No session log files found");
         deleteButton.enabled = false;
         openFolderButton.enabled = false;
         viewButton.enabled = false;
-        okButton.enabled = false;
+        saveButton.enabled = false;
+    }
+}
+*/
+
+function refreshLogListByModifed() {
+    logList.removeAll();
+    // ~/Library/Preferences/Adobe Photoshop #### Settings
+    var logFilePath = Folder(app.preferencesFolder);
+    var logFiles = logFilePath.getFiles("Photoshop Session - *.log");
+
+    if (logFiles && logFiles.length > 0) {
+        // Sort the files by modified date in descending order
+        logFiles.sort(function (a, b) {
+            return b.modified - a.modified;
+        });
+
+        // Add each log file to the list
+        for (var i = 0; i < logFiles.length; i++) {
+            var logFile = logFiles[i];
+            var item = logList.add("item", decodeURI(logFile.name));
+            item.file = logFile;
+        }
+
+        logList.selection = 0;
+        deleteButton.enabled = enableManagementCheckbox.value;
+        openFolderButton.enabled = enableManagementCheckbox.value;
+        viewButton.enabled = true;
+        saveButton.enabled = true;
+    } else {
+        logList.add("item", "No session log files found");
+        deleteButton.enabled = false;
+        openFolderButton.enabled = false;
+        viewButton.enabled = false;
+        saveButton.enabled = false;
     }
 }
 
-// Function to enable/disable panels based on checkbox state
 function setPanelEnabledState(state) {
     logList.enabled = state;
     enableManagementCheckbox.enabled = state;
@@ -114,34 +152,60 @@ function setPanelEnabledState(state) {
     deleteButton.enabled = state && enableManagementCheckbox.value;
     viewButton.enabled = state && logList.selection && logList.selection.file;
     sessionNameInput.enabled = !state; // Enable session name input only when saving
+    // Set the text color to dimmed gray when restore is active
+    sessionNameHelp.graphics.foregroundColor = sessionNameHelp.graphics.newPen(
+        sessionNameHelp.graphics.PenType.SOLID_COLOR,
+        state ? [0.5, 0.5, 0.5] : [1, 1, 1],
+        1
+    );
 }
 
-// Checkbox handlers for checkbox mutual exclusivity
+// Checkbox handlers for radio button-like behavior
 saveCheckbox.onClick = function () {
+    // If trying to uncheck the currently checked box
+    if (!saveCheckbox.value && !restoreCheckbox.value) {
+        // Prevent unchecking by keeping this checkbox checked
+        saveCheckbox.value = true;
+        return;
+    }
+
     if (saveCheckbox.value) {
         restoreCheckbox.value = false;
         setPanelEnabledState(false);
-        okButton.text = "OK";
-        okButton.enabled = true;
-        dlg.layout.layout(true);
+        saveButton.text = "Save";
+        saveButton.enabled = true;
     }
+    dlg.layout.layout(true);
 };
 
 restoreCheckbox.onClick = function () {
+    // If trying to uncheck the currently checked box
+    if (!restoreCheckbox.value && !saveCheckbox.value) {
+        // Prevent unchecking by keeping this checkbox checked
+        restoreCheckbox.value = true;
+        return;
+    }
+
     if (restoreCheckbox.value) {
         saveCheckbox.value = false;
         setPanelEnabledState(true);
-        okButton.text = "Restore";
-        refreshLogList();
-        okButton.enabled = logList.selection && logList.selection.file;
-        dlg.layout.layout(true);
+        saveButton.text = "Restore";
+        //refreshLogList();
+        refreshLogListByModifed();
+        saveButton.enabled = logList.selection && logList.selection.file;
     }
+    dlg.layout.layout(true);
 };
 
-// Ensure OK button state updates if logList selection changes
+// Initialize with save checkbox selected by default
+saveCheckbox.value = true;
+restoreCheckbox.value = false;
+setPanelEnabledState(false);
+
+// Ensure Save button state updates if logList selection changes
 logList.onChange = function () {
     if (restoreCheckbox.value) {
-        okButton.enabled = logList.selection && logList.selection.file;
+        saveButton.enabled = logList.selection && logList.selection.file;
     }
 };
 
@@ -165,7 +229,8 @@ deleteButton.onClick = function () {
         if (confirmDelete) {
             try {
                 selectedFile.remove();
-                refreshLogList();
+                //refreshLogList();
+                refreshLogListByModifed();
             } catch (e) {
                 alert("Error deleting file: " + e.message);
             }
@@ -185,8 +250,8 @@ cancelButton.onClick = function () {
     dlg.close();
 };
 
-// OK button handler with exit/return
-okButton.onClick = function () {
+// Save button handler with exit/return
+saveButton.onClick = function () {
     if (saveCheckbox.value) {
         if (app.documents.length === 0) {
             alert("No documents open in the current session to save.");
@@ -196,12 +261,12 @@ okButton.onClick = function () {
         saveSession();
         dlg.close();
     } else if (restoreCheckbox.value && logList.selection && logList.selection.file) {
-        restoreSpecificSession(logList.selection.file);
+        restoreSession(logList.selection.file);
         dlg.close();
     }
 };
 
-function restoreSpecificSession(logFile) {
+function restoreSession(logFile) {
     try {
         var logContents = readPref(logFile);
 
@@ -292,7 +357,11 @@ function viewLogContents(logFile) {
     });
     logTextArea.preferredSize.width = 550;
     logTextArea.preferredSize.height = 300;
-    logTextArea.enabled = false; // Make it read-only
+    //logTextArea.enabled = false; // Make it read-only
+    // Intercept key events to prevent modifications
+    logTextArea.addEventListener('keydown', function (event) {
+        event.preventDefault();
+    });
 
     // Add close button
     var closeButtonGroup = viewWindow.add("group");
@@ -325,5 +394,5 @@ function readPref(logFile) {
     return logContents;
 }
 
-// Open the dialog
+// Open the main script dialog window
 dlg.show();
