@@ -1,6 +1,6 @@
 /*
 
-Photoshop-Session-Manager-scriptUI-GUI-v2-3A.jsx
+Photoshop-Session-Manager-scriptUI-GUI-v2-3B.jsx
 Stephen Marsh
 
 v1.0 - 27th October 2024, Single session save/restore
@@ -10,6 +10,7 @@ v2.2 - 9th November 2024, Geek update - exploring semi-structured data, the log 
 v2.3 - 13th November 2024, Added an option to prompt to save modified documents when closing a session, in addition to the previous save and close option
 v2.3a - 9th August 2025, JSON error logging code updated. Note Windows users may need to set permissions for "Everyone" on the following directory:
         C:\Users\<username>\AppData\Roaming\Adobe\Adobe Photoshop ####\Adobe Photoshop #### Settings
+v2.3b - 11th August 2025, Log file path directory separator updated to correctly display on Windows. Minor GUI layout change.
 
 https://community.adobe.com/t5/photoshop-ecosystem-discussions/scripts-to-save-amp-restore-photoshop-sessions/m-p/14239969
 
@@ -61,8 +62,8 @@ dlg.orientation = "column";
 dlg.alignChildren = ["fill", "top"];
 dlg.preferredSize.width = 450;
 
-// Checkbox panel to select the save or restore functions
-var checkboxGroup = dlg.add("panel", undefined, "Save or Restore Session Documents");
+// Checkbox panel to select the save functions
+var checkboxGroup = dlg.add("panel", undefined, "Save Session Documents");
 checkboxGroup.orientation = "column";
 checkboxGroup.alignChildren = ["left", "center"];
 
@@ -72,7 +73,7 @@ buttonPanel.orientation = "column";
 buttonPanel.alignChildren = ["left", "center"];
 
 // "Save Current Session" checkbox
-var saveCheckbox = buttonPanel.add("checkbox", undefined, "Save Current Session Documents");
+var saveCheckbox = buttonPanel.add("checkbox", undefined, "Save Current Session Options");
 saveCheckbox.value = true;
 
 // Add radio buttons for save behavior
@@ -93,19 +94,14 @@ var sessionNameInput = buttonPanel.add("edittext", undefined, "");
 sessionNameInput.helpTip = "(Leave blank to use timestamp as session name)";
 sessionNameInput.preferredSize.width = 450;
 
-// Panel separator line
-var separatorLine = buttonPanel.add("panel");
-separatorLine.alignment = "fill";
-separatorLine.preferredSize.height = 1;
-
-// "Restore Saved Session" checkbox
-var restoreCheckbox = buttonPanel.add("checkbox", undefined, "Restore Saved Session Documents");
-
 // Create restore session panel (initially inactive)
-var restorePanel = dlg.add("panel", undefined, "Restore Saved Session Options");
+var restorePanel = dlg.add("panel", undefined, "Restore Session Documents");
 restorePanel.orientation = "column";
 restorePanel.alignChildren = ["fill", "top"];
 restorePanel.visible = true;
+
+// "Restore Saved Session" checkbox
+var restoreCheckbox = restorePanel.add("checkbox", undefined, "Restore Saved Session Options");
 
 // Create listbox for session logs
 var logList = restorePanel.add("listbox", undefined, [], { multiselect: false });
