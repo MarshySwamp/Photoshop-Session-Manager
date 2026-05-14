@@ -1,20 +1,18 @@
 /*
-Photoshop-Session-Manager-scriptUI-GUI-v1C.jsx
+Photoshop-Session-Manager-scriptUI-GUI-v2.jsx
 Stephen Marsh
-v1.1 - 27th October 2024, Single session save/restore
-v1.1 - 27th October 2024, Extended the script to work with multiple sessions
+v1.0 - 27th October 2024, Single session save/restore
+v2.0 - 27th October 2024, Extended the script to work with multiple sessions
 https://community.adobe.com/t5/photoshop-ecosystem-discussions/scripts-to-save-amp-restore-photoshop-sessions/m-p/14239969
 Inspiration from:
 https://community.adobe.com/t5/photoshop-ecosystem-ideas/please-session-saving/idc-p/14169472
 https://community.adobe.com/t5/photoshop-ecosystem-ideas/restore-previous-session/idc-p/14189928
 */
 
-// TO DO: RESTORE THE v1.0 FEATURE TO SET AND GET THE ACTIVE DOCUMENT...
-
 #target photoshop
 
 // Set the main UI window
-var dlg = new Window("dialog", "Photoshop Session Manager (v1.1)");
+var dlg = new Window("dialog", "Photoshop Session Manager (v2.0)");
 dlg.orientation = "column";
 dlg.alignChildren = ["fill", "top"];
 dlg.preferredSize.width = 450;
@@ -28,15 +26,15 @@ var restoreRadio = radioGroup.add("radiobutton", undefined, "Restore Saved Sessi
 saveRadio.value = true;
 
 // Add session name panel
-var sessionNamePanel = dlg.add("panel", undefined, "Save Current Session Custom Suffix");
+var sessionNamePanel = dlg.add("panel", undefined, "Optional Custom Session Name");
 sessionNamePanel.orientation = "column";
 sessionNamePanel.alignChildren = ["fill", "top"];
 
 // Add edit text field for custom session name
 var sessionNameInput = sessionNamePanel.add("edittext");
-sessionNameInput.preferredSize.width = 430;
-var sessionNameHelp = sessionNamePanel.add("statictext", undefined, "Leave blank to use timestamp as session name");
-sessionNameHelp.graphics.foregroundColor = sessionNameHelp.graphics.newPen(sessionNameHelp.graphics.PenType.SOLID_COLOR, [0.5, 0.5, 0.5], 1);
+sessionNameInput.preferredSize.width = 450;
+var sessionNameHelp = sessionNamePanel.add("statictext", undefined, "(Leave blank to use timestamp as session name)");
+sessionNameHelp.graphics.foregroundColor = sessionNameHelp.graphics.newPen(sessionNameHelp.graphics.PenType.SOLID_COLOR, [0.75, 0.75, 0.75], 1);
 
 // Create restore session panel (always visible but inactive initially)
 var restorePanel = dlg.add("panel", undefined, "Restore Saved Session Options");
@@ -46,10 +44,10 @@ restorePanel.visible = true;
 
 // Create listbox for session logs
 var logList = restorePanel.add("listbox", undefined, [], { multiselect: false });
-logList.preferredSize = [430, 125];
+logList.preferredSize = [450, 150];
 
 // Add management controls checkbox
-var enableManagementCheckbox = restorePanel.add("checkbox", undefined, "Enable Session Log Management Controls");
+var enableManagementCheckbox = restorePanel.add("checkbox", undefined, "Session Log File Management");
 enableManagementCheckbox.value = false;
 
 // Create management buttons group
@@ -74,7 +72,7 @@ var cancelButton = buttonGroup.add("button", undefined, "Cancel");
 var okButton = buttonGroup.add("button", undefined, "OK", { name: "ok" });
 okButton.preferredSize.width = 90;
 
-// Function to refresh the log list
+
 function refreshLogList() {
     // Clear existing items
     logList.removeAll();
@@ -103,7 +101,6 @@ function refreshLogList() {
     }
 }
 
-// Function to set the enabled state of restore panel content
 function setPanelEnabledState(state) {
     logList.enabled = state;
     enableManagementCheckbox.enabled = state;
@@ -113,7 +110,6 @@ function setPanelEnabledState(state) {
     sessionNamePanel.enabled = !state; // Enable session name input only when saving
 }
 
-// Function to view log contents
 function viewLogContents(logFile) {
     var logContents = readPref(logFile);
 
@@ -127,8 +123,8 @@ function viewLogContents(logFile) {
         multiline: true,
         scrollable: true
     });
-    logTextArea.preferredSize.width = 450;
-    logTextArea.preferredSize.height = 200;
+    logTextArea.preferredSize.width = 550;
+    logTextArea.preferredSize.height = 300;
     logTextArea.enabled = false; // Make it read-only
 
     // Add close button
@@ -202,12 +198,20 @@ viewButton.onClick = function () {
     }
 };
 
+// Cancel button handler
 cancelButton.onClick = function () {
     dlg.close();
 };
 
+// OK button handler with exit
 okButton.onClick = function () {
     if (saveRadio.value) {
+        // Check for open documents before proceeding with save
+        if (app.documents.length === 0) {
+            alert("No documents open in the current session to save.");
+            dlg.close(); // Close the dialog
+            return;      // Return early to stop execution
+        }
         saveSession();
         dlg.close();
     } else if (restoreRadio.value && logList.selection && logList.selection.file) {
@@ -222,7 +226,8 @@ function restoreSpecificSession(logFile) {
         var hasAlerted = false;
 
         if (logContents.length > 0) {
-            for (var m = 0; m < logContents.length; m++) {
+            // Restore documents from the log file
+            for (var m = 4; m < logContents.length; m++) {
                 var filePath = logContents[m].replace(/^\s+|\s+$/g, '');  // Remove leading/trailing whitespace
 
                 if (filePath !== "") {  // Check if the path is not empty
@@ -234,6 +239,16 @@ function restoreSpecificSession(logFile) {
                     }
                 }
             }
+
+            // Set the previously active document after the session has been restored
+            var theActiveDocName = logContents[2]; // zero indexed, third line
+            for (var a = 0; a < app.documents.length; a++) {
+                if (app.documents[a].name === theActiveDocName) {
+                    app.activeDocument = app.documents[a];
+                    break;
+                }
+            }
+
         } else {
             alert("The selected log file is empty!");
             hasAlerted = true;
@@ -245,52 +260,46 @@ function restoreSpecificSession(logFile) {
 
 function saveSession() {
     try {
-        if (app.documents.length > 0) {
-            var theDate = new Date();
-            var year = theDate.getFullYear();
-            var month = ('0' + (theDate.getMonth() + 1)).slice(-2);
-            var day = ('0' + theDate.getDate()).slice(-2);
-            var hours = ('0' + theDate.getHours()).slice(-2);
-            var minutes = ('0' + theDate.getMinutes()).slice(-2);
-            var seconds = ('0' + theDate.getSeconds()).slice(-2);
-            var formattedDate = year + '-' + month + '-' + day + '_' + hours + '-' + minutes + '-' + seconds;
+        var theDate = new Date();
+        var year = theDate.getFullYear();
+        var month = ('0' + (theDate.getMonth() + 1)).slice(-2);
+        var day = ('0' + theDate.getDate()).slice(-2);
+        var hours = ('0' + theDate.getHours()).slice(-2);
+        var minutes = ('0' + theDate.getMinutes()).slice(-2);
+        var seconds = ('0' + theDate.getSeconds()).slice(-2);
+        var formattedDate = year + '-' + month + '-' + day + '_' + hours + '-' + minutes + '-' + seconds;
 
-            // Use custom session name if provided, otherwise use formatted date
-            var sessionName = sessionNameInput.text;
-            // Remove leading/trailing spaces manually since trim() isn't available
-            while (sessionName.charAt(0) === ' ') {
-                sessionName = sessionName.substring(1);
+        // Use custom session name if provided, otherwise use formatted date
+        var sessionName = sessionNameInput.text;
+        // Remove leading/trailing spaces manually since trim() isn't available
+        while (sessionName.charAt(0) === ' ') {
+            sessionName = sessionName.substring(1);
+        }
+        while (sessionName.charAt(sessionName.length - 1) === ' ') {
+            sessionName = sessionName.substring(0, sessionName.length - 1);
+        }
+        var fileName = sessionName !== "" ? sessionName : formattedDate;
+        // Ensure the filename is valid by removing illegal characters
+        fileName = fileName.replace(/[<>:"\/\\|?*]/g, "-");
+
+        var logFile = new File(app.preferencesFolder + "/" + "Photoshop Session - " + fileName + ".log");
+        if (logFile.exists) logFile.remove();
+
+        // Log the active document name on line 2
+        logFile.open("a");
+        logFile.writeln("--------------------\nActive Doc:\n" + activeDocument.name + "\n--------------------");
+        logFile.close();
+
+        while (app.documents.length > 0) {
+            app.activeDocument = app.documents[0];
+            try {
+                activeDocument.path;
+                writePref(logFile, activeDocument.fullName.fsName);
+                activeDocument.close(SaveOptions.DONOTSAVECHANGES);
+            } catch (e) {
+                writePref(logFile, activeDocument.name);
+                activeDocument.close(SaveOptions.DONOTSAVECHANGES);
             }
-            while (sessionName.charAt(sessionName.length - 1) === ' ') {
-                sessionName = sessionName.substring(0, sessionName.length - 1);
-            }
-
-            var fileName = sessionName !== "" ? sessionName : formattedDate;
-
-            // Ensure the filename is valid by removing illegal characters
-            fileName = fileName.replace(/[<>:"\/\\|?*]/g, "-");
-
-            var logFile = new File(app.preferencesFolder + "/" + "Photoshop Session - " + fileName + ".log");
-            if (logFile.exists) logFile.remove();
-
-            while (app.documents.length > 0) {
-                app.activeDocument = app.documents[0];
-                try {
-                    activeDocument.path;
-                    if (ExternalObject.AdobeXMPScript === undefined)
-                        ExternalObject.AdobeXMPScript = new ExternalObject('lib:AdobeXMPScript');
-                    var xmp = new XMPMeta(activeDocument.xmpMetadata.rawData);
-                    xmp.deleteProperty(XMPConst.NS_PHOTOSHOP, "PreservedFileName");
-                    activeDocument.xmpMetadata.rawData = xmp.serialize();
-                    writePref(logFile, activeDocument.fullName.fsName);
-                    activeDocument.close(SaveOptions.DONOTSAVECHANGES);
-                } catch (e) {
-                    writePref(logFile, activeDocument.name);
-                    activeDocument.close(SaveOptions.DONOTSAVECHANGES);
-                }
-            }
-        } else {
-            alert("No documents open in the current session to save.");
         }
     } catch (e) {
         alert("Error saving session: " + e.message);
